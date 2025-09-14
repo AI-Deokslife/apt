@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block title %}회원가입{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-6 col-lg-4">
+            <div class="card shadow">
+                <div class="card-body p-4">
+                    <h2 class="text-center mb-4" style="color: #FF6B8B;">
+                        <i class="fas fa-user-plus"></i> 회원가입
+                    </h2>
+                    
+                    <form method="POST" action="{{ url_for('register') }}">
+                        {{ form.hidden_tag() }}
+                        
+                        <div class="mb-3">
+                            <label for="username" class="form-label">닉네임</label>
+                            <div class="input-group">
+                                <span class="input-group-text" style="background-color: var(--pastel-pink); border: none;">
+                                    <i class="fas fa-user" style="color: #FF6B8B;"></i>
+                                </span>
+                                {{ form.username(class="form-control", placeholder="닉네임을 입력하세요") }}
+                            </div>
+                            {% if form.username.errors %}
+                                <div class="text-danger">
+                                    {% for error in form.username.errors %}
+                                        <small>{{ error }}</small>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="email" class="form-label">이메일</label>
+                            <div class="input-group">
+                                <span class="input-group-text" style="background-color: var(--pastel-pink); border: none;">
+                                    <i class="fas fa-envelope" style="color: #FF6B8B;"></i>
+                                </span>
+                                {{ form.email(class="form-control", placeholder="이메일을 입력하세요") }}
+                            </div>
+                            {% if form.email.errors %}
+                                <div class="text-danger">
+                                    {% for error in form.email.errors %}
+                                        <small>{{ error }}</small>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="password" class="form-label">비밀번호</label>
+                            <div class="input-group">
+                                <span class="input-group-text" style="background-color: var(--pastel-pink); border: none;">
+                                    <i class="fas fa-lock" style="color: #FF6B8B;"></i>
+                                </span>
+                                {{ form.password(class="form-control", placeholder="비밀번호를 입력하세요") }}
+                            </div>
+                            {% if form.password.errors %}
+                                <div class="text-danger">
+                                    {% for error in form.password.errors %}
+                                        <small>{{ error }}</small>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="confirm_password" class="form-label">비밀번호 확인</label>
+                            <div class="input-group">
+                                <span class="input-group-text" style="background-color: var(--pastel-pink); border: none;">
+                                    <i class="fas fa-lock" style="color: #FF6B8B;"></i>
+                                </span>
+                                {{ form.confirm_password(class="form-control", placeholder="비밀번호를 다시 입력하세요") }}
+                            </div>
+                            {% if form.confirm_password.errors %}
+                                <div class="text-danger">
+                                    {% for error in form.confirm_password.errors %}
+                                        <small>{{ error }}</small>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-user-plus me-2"></i>회원가입
+                            </button>
+                        </div>
+                    </form>
+                    
+                    <div class="text-center mt-3">
+                        <p class="mb-0">
+                            이미 계정이 있으신가요? 
+                            <a href="{{ url_for('login') }}" class="text-decoration-none" style="color: #FF6B8B;">
+                                로그인
+                            </a>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

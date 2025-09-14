@@ -1,0 +1,134 @@
+body {
+    font-family: '맑은 고딕', 'Malgun Gothic', sans-serif;
+    background-color: #FDF6E3;
+    color: #5D576B;
+    margin: 0;
+    padding: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 100vh;
+}
+
+.container {
+    background-color: #FFFFFF;
+    padding: 30px;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    max-width: 900px;
+    box-sizing: border-box;
+}
+
+h1 {
+    color: #457B9D;
+    text-align: center;
+    margin-bottom: 10px;
+}
+
+p {
+    text-align: center;
+    margin-bottom: 20px;
+    color: #839496;
+}
+
+.input-group {
+    display: flex;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.input-group label {
+    width: 150px;
+    font-weight: bold;
+    margin-right: 10px;
+    color: #457B9D;
+}
+
+.input-group input[type="text"],
+.input-group select {
+    flex-grow: 1;
+    padding: 8px;
+    border: 1px solid #DAD7CD;
+    border-radius: 5px;
+    font-size: 14px;
+}
+
+.input-group button {
+    background-color: #DAD7CD;
+    color: #5D576B;
+    border: none;
+    padding: 8px 15px;
+    border-radius: 5px;
+    cursor: pointer;
+    margin-left: 10px;
+    font-size: 14px;
+}
+
+.input-group button:hover {
+    background-color: #C6EFCE;
+}
+
+#start-crawling-btn {
+    display: block;
+    width: 100%;
+    padding: 12px;
+    background-color: #A8DADC;
+    color: #1D3557;
+    border: none;
+    border-radius: 5px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    margin-top: 20px;
+}
+
+#start-crawling-btn:hover {
+    background-color: #8ECDCF;
+}
+
+#status-message {
+    text-align: center;
+    margin-top: 20px;
+    font-weight: bold;
+    color: #E76F51;
+}
+
+#results-container {
+    margin-top: 30px;
+    border-top: 1px solid #eee;
+    padding-top: 20px;
+}
+
+#results-container h2 {
+    text-align: center;
+    color: #457B9D;
+    margin-bottom: 15px;
+}
+
+#data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+}
+
+#data-table th,
+#data-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: center;
+}
+
+#data-table th {
+    background-color: #C6EFCE;
+    color: #1D3557;
+    font-weight: bold;
+}
+
+#data-table tbody tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+
+#data-table tbody tr:hover {
+    background-color: #f1f1f1;
+}

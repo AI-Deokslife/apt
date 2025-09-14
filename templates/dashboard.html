@@ -1,0 +1,498 @@
+{% extends "base.html" %}
+
+{% block title %}대시보드{% endblock title %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">부동산 데이터 검색</h5>
+                    <p class="text-muted mb-0">원하는 지역과 조건을 선택하여 부동산 정보를 검색하세요.</p>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-4">
+                        <!-- 지역 검색 -->
+                        <div class="col-md-4">
+                            <label class="form-label">지역 검색</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="region" placeholder="예: 천호동">
+                                <button class="btn btn-outline-primary" type="button" id="searchRegionBtn">
+                                    <i class="fas fa-search"></i> 검색
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 아파트 선택 -->
+                        <div class="col-md-4">
+                            <label class="form-label">아파트 선택</label>
+                            <select class="form-select" id="complexSelect" disabled>
+                                <option value="">아파트를 선택하세요</option>
+                            </select>
+                        </div>
+
+                        <!-- 거래 유형 -->
+                        <div class="col-md-4">
+                            <label class="form-label">거래 유형</label>
+                            <select class="form-select" id="tradeType" disabled>
+                                <option value="전체">전체</option>
+                                <option value="매매">매매</option>
+                                <option value="전세">전세</option>
+                                <option value="월세">월세</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- 검색 버튼 -->
+                    <div class="row mb-4">
+                        <div class="col-12 text-center">
+                            <button type="button" class="btn btn-primary px-5" id="searchPropertyBtn" disabled>
+                                검색하기
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 매물 정보 표시 -->
+                    <div id="propertyInfo" class="mt-4" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h6>매물 정보</h6>
+                            <button type="button" class="btn btn-success btn-sm" id="excelBtn">
+                                <i class="fas fa-file-excel me-1"></i> Excel 다운로드
+                            </button>
+                        </div>
+                        <div class="table-responsive mt-3" id="propertyTableContainer" style="display: none;">
+                            <table class="table table-hover" style="font-size: 0.8rem; margin-bottom: 0;">
+                                <thead>
+                                    <tr>
+                                        <th class="text-center" data-sort="순번" style="cursor: pointer; width: 4%; padding: 0.5rem;">순번</th>
+                                        <th class="text-center" data-sort="거래유형" style="cursor: pointer; width: 6%; padding: 0.5rem;">거래유형</th>
+                                        <th class="text-center" data-sort="동" style="cursor: pointer; width: 6%; padding: 0.5rem;">동</th>
+                                        <th class="text-center" data-sort="층수" style="cursor: pointer; width: 5%; padding: 0.5rem;">층수</th>
+                                        <th class="text-center" data-sort="전용면적" style="cursor: pointer; width: 8%; padding: 0.5rem;">전용면적(㎡)</th>
+                                        <th class="text-center" data-sort="방향" style="cursor: pointer; width: 5%; padding: 0.5rem;">방향</th>
+                                        <th class="text-center" data-sort="거래가격" style="cursor: pointer; width: 15%; padding: 0.5rem;">거래가격</th>
+                                        <th class="text-center" data-sort="월세" style="cursor: pointer; width: 8%; padding: 0.5rem;">월세</th>
+                                        <th class="text-center" data-sort="중개사무소" style="cursor: pointer; width: 20%; padding: 0.5rem;">중개사무소</th>
+                                        <th class="text-center" data-sort="등록일" style="cursor: pointer; width: 8%; padding: 0.5rem;">등록일</th>
+                                        <th class="text-center" data-sort="특징" style="cursor: pointer; width: 15%; padding: 0.5rem;">특징</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="propertyList" style="padding: 0.5rem;">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 로딩 표시 -->
+<div id="loadingOverlay" class="position-fixed top-0 start-0 w-100 h-100 d-none" 
+     style="background: rgba(255,255,255,0.8); z-index: 9999;">
+    <div class="position-absolute top-50 start-50 translate-middle text-center">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <div class="mt-2">데이터를 불러오는 중...</div>
+    </div>
+</div>
+
+<!-- 상세 정보 모달 -->
+<div class="modal fade" id="propertyDetailModal" tabindex="-1" aria-labelledby="propertyDetailModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="propertyDetailModalLabel">매물 상세 정보</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="modalPropertyDetails">
+                    <p><strong>거래유형:</strong> <span id="modalTradeType"></span></p>
+                    <p><strong>동:</strong> <span id="modalDong"></span></p>
+                    <p><strong>층수:</strong> <span id="modalFloor"></span></p>
+                    <p><strong>전용면적:</strong> <span id="modalArea"></span> ㎡</p>
+                    <p><strong>방향:</strong> <span id="modalDirection"></span></p>
+                    <p><strong>거래가격:</strong> <span id="modalPrice"></span></p>
+                    <p><strong>월세:</strong> <span id="modalMonthlyRent"></span></p>
+                    <p><strong>중개사무소:</strong> <span id="modalAgency"></span></p>
+                    <p><strong>등록일:</strong> <span id="modalRegDate"></span></p>
+                    <p><strong>특징:</strong> <span id="modalFeatures"></span></p>
+                    <p><strong>특이사항:</strong> <span id="modalFeatureDesc"></span></p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<script>
+let currentComplexNo = null;
+let propertyData = []; // 전체 매물 데이터를 저장할 배열
+let currentSortColumn = '순번';
+let isAscending = true;
+
+// 지역 검색 결과 처리
+async function handleRegionSearch() {
+    const region = document.getElementById('region').value.trim();
+    const complexSelect = document.getElementById('complexSelect');
+    
+    if (!region) {
+        alert('지역명을 입력해주세요.');
+        return;
+    }
+
+    try {
+        showLoading();
+        const response = await fetch('/search', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token() }}'
+            },
+            body: JSON.stringify({ keyword: region })
+        });
+
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error || '검색 중 오류가 발생했습니다.');
+        }
+
+        if (data.error) {
+            throw new Error(data.error);
+        }
+
+        if (!data.complexes || data.complexes.length === 0) {
+            alert('검색 결과가 없습니다.');
+            return;
+        }
+
+        // 아파트 선택 콤보박스 업데이트
+        complexSelect.innerHTML = '<option value="">아파트를 선택하세요</option>';
+        data.complexes.forEach(complex => {
+            const option = document.createElement('option');
+            option.value = complex.complexNo;
+            option.textContent = `${complex.complexName} (${complex.totalHouseholdCount}세대)`;
+            complexSelect.appendChild(option);
+        });
+
+        // 컨트롤 활성화
+        complexSelect.disabled = false;
+        document.getElementById('tradeType').disabled = false;
+        document.getElementById('searchPropertyBtn').disabled = false;
+
+    } catch (error) {
+        console.error('Search error:', error);
+        alert(error.message);
+        
+        // 에러 발생 시 컨트롤 비활성화
+        complexSelect.disabled = true;
+        document.getElementById('tradeType').disabled = true;
+        document.getElementById('searchPropertyBtn').disabled = true;
+    } finally {
+        hideLoading();
+    }
+}
+
+// 매물 검색
+async function handlePropertySearch() {
+    const complexSelect = document.getElementById('complexSelect');
+    const tradeType = document.getElementById('tradeType');
+    
+    if (!complexSelect.value) {
+        alert('아파트를 선택해주세요.');
+        return;
+    }
+
+    try {
+        showLoading();
+        const response = await fetch('/fetch_data', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token() }}'
+            },
+            body: JSON.stringify({
+                complex_no: complexSelect.value,
+                trade_type: tradeType.value
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || '매물 정보를 가져오는 중 오류가 발생했습니다.');
+        }
+
+        const data = await response.json();
+        if (data.error) {
+            throw new Error(data.error);
+        }
+
+        propertyData = data.data; // 전체 데이터 저장
+        
+        // 매물 정보 영역 표시
+        document.getElementById('propertyInfo').style.display = 'block';
+        document.getElementById('propertyTableContainer').style.display = 'block';
+        document.getElementById('excelBtn').style.display = 'inline-block';
+        
+        // 데이터 표시
+        displayPropertyData();
+
+    } catch (error) {
+        console.error('Error:', error);
+        alert(error.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+function displayPropertyData() {
+    const tradeType = document.getElementById('tradeType').value;
+    const propertyList = document.getElementById('propertyList');
+    
+    if (!propertyData || propertyData.length === 0) {
+        propertyList.innerHTML = '<tr><td colspan="11" class="text-center">매물 정보가 없습니다.</td></tr>';
+        return;
+    }
+    
+    let filteredData = propertyData;
+    
+    // 거래 유형에 따른 필터링
+    if (tradeType && tradeType !== '전체') {
+        filteredData = propertyData.filter(item => item.거래유형 === tradeType);
+    }
+    
+    // 정렬 적용
+    filteredData.sort((a, b) => {
+        let valueA = a[currentSortColumn];
+        let valueB = b[currentSortColumn];
+        
+        // 숫자로 변환 가능한 경우 숫자 비교
+        if (!isNaN(valueA) && !isNaN(valueB)) {
+            valueA = parseFloat(valueA);
+            valueB = parseFloat(valueB);
+        }
+        
+        if (valueA < valueB) return isAscending ? -1 : 1;
+        if (valueA > valueB) return isAscending ? 1 : -1;
+        return 0;
+    });
+    
+    propertyList.innerHTML = '';
+    
+    if (filteredData.length === 0) {
+        propertyList.innerHTML = '<tr><td colspan="11" class="text-center">선택한 거래 유형의 매물이 없습니다.</td></tr>';
+        return;
+    }
+    
+    filteredData.forEach((item, index) => {
+        const row = document.createElement('tr');
+        row.style.padding = '0.5rem';
+        row.style.cursor = 'pointer'; // 클릭 가능 커서
+        row.setAttribute('data-bs-toggle', 'modal');
+        row.setAttribute('data-bs-target', '#propertyDetailModal');
+        row.setAttribute('data-index', index); // 데이터 인덱스 저장
+        
+        // 거래 유형에 따른 가격 표시 로직
+        let priceDisplay = item.거래가격 || '-';
+        let priceSortValue = item.거래가격_숫자 || 0;
+        
+        row.innerHTML = `
+            <td class="text-center" style="padding: 0.5rem;">${index + 1}</td>
+            <td class="text-center" style="padding: 0.5rem;">${item.거래유형 || '-'}</td>
+            <td class="text-center" style="padding: 0.5rem;">${item.동 || '-'}</td>
+            <td class="text-center" style="padding: 0.5rem;">${item.층수 || '-'}</td>
+            <td class="text-center" style="padding: 0.5rem;">${item.전용면적 || '-'}</td>
+            <td class="text-center" style="padding: 0.5rem;">${item.방향 || '-'}</td>
+            <td class="text-center" style="padding: 0.5rem;" data-sort-value="${priceSortValue}">${priceDisplay}</td>
+            <td class="text-center" style="padding: 0.5rem;" data-sort-value="${item.월세_숫자 || 0}">${item.월세 || '-'}</td>
+            <td class="text-center" style="padding: 0.5rem;">${item.중개사무소 || '-'}</td>
+            <td class="text-center" style="padding: 0.5rem;">${item.등록일 || '-'}</td>
+            <td class="text-center" style="padding: 0.5rem;">${item.특징 || '-'}${item.특징설명 ? '<br>' + item.특징설명 : ''}</td>
+        `;
+        propertyList.appendChild(row);
+    });
+
+    // 전역 변수로 필터링된 데이터 저장 (모달에서 사용)
+    window.filteredData = filteredData;
+}
+
+// 모달 데이터 채우기
+function populateModal(index) {
+    const item = window.filteredData[index];
+    document.getElementById('modalTradeType').textContent = item.거래유형 || '-';
+    document.getElementById('modalDong').textContent = item.동 || '-';
+    document.getElementById('modalFloor').textContent = item.층수 || '-';
+    document.getElementById('modalArea').textContent = item.전용면적 || '-';
+    document.getElementById('modalDirection').textContent = item.방향 || '-';
+    document.getElementById('modalPrice').textContent = item.거래가격 || '-';
+    document.getElementById('modalMonthlyRent').textContent = item.월세 || '-';
+    document.getElementById('modalAgency').textContent = item.중개사무소 || '-';
+    document.getElementById('modalRegDate').textContent = item.등록일 || '-';
+    document.getElementById('modalFeatures').textContent = item.특징 || '-';
+    document.getElementById('modalFeatureDesc').textContent = item.특징설명 || '-';
+}
+
+// Excel 다운로드
+async function handleExcelDownload() {
+    const complexSelect = document.getElementById('complexSelect');
+    const tradeType = document.getElementById('tradeType');
+
+    if (!complexSelect.value) {
+        alert("엑셀로 저장할 아파트 단지를 먼저 선택해주세요.");
+        return;
+    }
+
+    try {
+        showLoading();
+
+        const response = await fetch('/download_excel', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token() }}'
+            },
+            body: JSON.stringify({
+                complex_no: complexSelect.value,
+                trade_type: tradeType.value
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || '엑셀 파일 다운로드 중 오류가 발생했습니다.');
+        }
+
+        const blob = await response.blob();
+        
+        // Content-Disposition 헤더에서 제안된 파일명 추출
+        const contentDisposition = response.headers.get('content-disposition');
+        let suggestedFilename = '매물정보.xlsx';
+        if (contentDisposition) {
+            const matches = /filename\*=UTF-8''([^;]*)/.exec(contentDisposition);
+            if (matches && matches[1]) {
+                suggestedFilename = decodeURIComponent(matches[1]);
+            }
+        }
+
+        // 파일 저장 방식 확인 및 처리
+        try {
+            // File System Access API 지원 확인 (Chrome, Edge 86+ 등 최신 브라우저)
+            if (window.showSaveFilePicker) {
+                const opts = {
+                    suggestedName: suggestedFilename,
+                    types: [{
+                        description: 'Excel 파일',
+                        accept: {'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx']}
+                    }]
+                };
+                
+                try {
+                    const handle = await window.showSaveFilePicker(opts);
+                    const writable = await handle.createWritable();
+                    await writable.write(blob);
+                    await writable.close();
+                    console.log('파일이 성공적으로 저장되었습니다 (File System Access API)');
+                    return; // 성공적으로 저장되었으므로 함수 종료
+                } catch (fsaError) {
+                    console.log('File System Access API 오류:', fsaError);
+                    // 사용자가 취소하거나 API 오류 발생 시 기본 방식으로 계속 진행
+                }
+            }
+            
+            // MS IE/Edge 레거시 브라우저용 (msSaveBlob API)
+            if (navigator.msSaveBlob) {
+                navigator.msSaveBlob(blob, suggestedFilename);
+                console.log('파일이 성공적으로 저장되었습니다 (MS SaveBlob API)');
+                return; // 성공적으로 저장되었으므로 함수 종료
+            }
+            
+            // 다른 모든 브라우저용 (전통적인 다운로드 방식)
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = suggestedFilename;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                console.log('파일이 성공적으로 저장되었습니다 (기본 다운로드)');
+            }, 100);
+        } catch (error) {
+            console.error('파일 저장 중 오류 발생:', error);
+            alert('파일 저장 중 오류가 발생했습니다: ' + error.message);
+        }
+    } catch (error) {
+        console.error('Excel 다운로드 오류:', error);
+        alert(error.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+function showLoading() {
+    document.getElementById('loadingOverlay').classList.remove('d-none');
+}
+
+function hideLoading() {
+    document.getElementById('loadingOverlay').classList.add('d-none');
+}
+
+// 이벤트 리스너 등록
+document.getElementById('searchRegionBtn').addEventListener('click', handleRegionSearch);
+document.getElementById('searchPropertyBtn').addEventListener('click', handlePropertySearch);
+document.getElementById('excelBtn').addEventListener('click', handleExcelDownload);
+
+// Enter 키로 지역 검색 실행
+document.getElementById('region').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        handleRegionSearch();
+    }
+});
+
+// 정렬 및 모달 이벤트 리스너 추가
+document.addEventListener('DOMContentLoaded', function() {
+    const headers = document.querySelectorAll('th[data-sort]');
+    headers.forEach(header => {
+        header.addEventListener('click', function() {
+            const column = this.dataset.sort;
+            if (currentSortColumn === column) {
+                isAscending = !isAscending;
+            } else {
+                currentSortColumn = column;
+                isAscending = true;
+            }
+            
+            // 정렬 방향 표시
+            headers.forEach(h => h.textContent = h.textContent.replace(' ▲', '').replace(' ▼', ''));
+            this.textContent += isAscending ? ' ▲' : ' ▼';
+            
+            displayPropertyData();
+        });
+    });
+    
+    // 거래 유형 변경 시 필터링
+    document.getElementById('tradeType').addEventListener('change', displayPropertyData);
+    
+    // 리스트 항목 클릭 시 모달 표시
+    const propertyList = document.getElementById('propertyList');
+    propertyList.addEventListener('click', function(e) {
+        const row = e.target.closest('tr');
+        if (row) {
+            const index = row.getAttribute('data-index');
+            if (index !== null) {
+                populateModal(index);
+            }
+        }
+    });
+});
+</script>
+{% endblock scripts %}

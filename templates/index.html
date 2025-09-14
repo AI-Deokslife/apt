@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+
+{% block title %}부동산 데이터 수집기{% endblock %}
+
+{% block content %}
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-10">
+            <div class="hero-section text-center py-5">
+                <h1 class="display-4 mb-4" style="color: #48a7f2; font-weight: bold;">
+                    <i class="fas fa-home"></i> 부동산 데이터 수집기
+                </h1>
+                <p class="lead mb-4" style="color: #666; font-size: 1.2rem;">
+                    네이버 부동산의 매물 정보를 쉽고 빠르게 수집하여<br>
+                    엑셀 파일로 저장할 수 있습니다.
+                </p>
+
+                {% if current_user.is_authenticated %}
+                    <div class="d-grid gap-2 col-6 mx-auto">
+                        <a href="{{ url_for('dashboard') }}" class="btn btn-primary btn-lg">
+                            <i class="fas fa-chart-line me-2"></i>대시보드로 이동
+                        </a>
+                    </div>
+                {% else %}
+                    <div class="d-grid gap-2 col-6 mx-auto">
+                        <a href="{{ url_for('login') }}" class="btn btn-primary btn-lg mb-3">
+                            <i class="fas fa-sign-in-alt me-2"></i>로그인
+                        </a>
+                        <a href="{{ url_for('register') }}" class="btn btn-outline-primary btn-lg">
+                            <i class="fas fa-user-plus me-2"></i>회원가입
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+
+            <div class="features-section mt-5">
+                <div class="row g-4">
+                    <div class="col-md-4">
+                        <div class="card h-100 feature-card">
+                            <div class="card-body text-center p-4">
+                                <div class="feature-icon mb-4">
+                                    <div class="icon-circle">
+                                        <i class="fas fa-magnifying-glass fa-2x"></i>
+                                    </div>
+                                </div>
+                                <h3 class="card-title h4" style="color: #48a7f2;">쉬운 검색</h3>
+                                <p class="card-text">지역명이나 아파트명으로 <br>빠르게 검색할 수 있습니다.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card h-100 feature-card">
+                            <div class="card-body text-center p-4">
+                                <div class="feature-icon mb-4">
+                                    <div class="icon-circle">
+                                        <i class="fas fa-file-excel fa-2x"></i>
+                                    </div>
+                                </div>
+                                <h3 class="card-title h4" style="color: #48a7f2;">엑셀 저장</h3>
+                                <p class="card-text">수집된 데이터를 엑셀 파일로 <br>쉽게 저장할 수 있습니다.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card h-100 feature-card">
+                            <div class="card-body text-center p-4">
+                                <div class="feature-icon mb-4">
+                                    <div class="icon-circle">
+                                        <i class="fas fa-bolt fa-2x"></i>
+                                    </div>
+                                </div>
+                                <h3 class="card-title h4" style="color: #48a7f2;">실시간 정보</h3>
+                                <p class="card-text">네이버 부동산의 <br>실시간 매물 정보를 수집합니다.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="how-to-use mt-5 text-center">
+                <h2 class="mb-4" style="color: #48a7f2;">사용 방법</h2>
+                <div class="row justify-content-center">
+                    <div class="col-md-8">
+                        <div class="steps">
+                            <div class="step mb-4">
+			        <div class="step-number">1</div>
+                                <div class="step-content">
+				    <h4>회원가입 후 로그인</h4>
+                                    <p>간단한 회원가입 후 로그인하여 서비스를 이용하세요.</p>
+				</div>
+                            </div>
+                            <div class="step mb-4">
+                                <div class="step-number">2</div>
+                                <div class="step-content">
+                                    <h4>검색 조건 설정</h4>
+                                    <p>대시보드에서 지역명이나 아파트명을 검색하세요.</p>
+                                </div>
+                            </div>
+                            <div class="step">
+                                <div class="step-number">3</div>
+                                <div class="step-content">
+                                    <h4>데이터 저장</h4>
+                                    <p>검색 결과를 확인하고 엑셀로 저장하세요.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .hero-section {
+        background: linear-gradient(135deg, rgba(135, 206, 250, 0.1), rgba(72, 167, 242, 0.1));
+        border-radius: 20px;
+        padding: 4rem 2rem;
+        margin-bottom: 3rem;
+    }
+
+    .feature-card {
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+        border: none;
+        border-radius: 15px;
+    }
+
+    .feature-card:hover {
+        transform: translateY(-10px);
+        box-shadow: 0 10px 20px rgba(135, 206, 250, 0.2);
+    }
+
+    .feature-icon {
+        margin: 0 auto;
+    }
+
+    .icon-circle {
+        width: 80px;
+        height: 80px;
+        background: linear-gradient(135deg, #87cefa, #48a7f2);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto;
+        color: white;
+        box-shadow: 0 4px 15px rgba(135, 206, 250, 0.3);
+    }
+
+    .icon-circle i {
+        font-size: 32px;
+        color: white;
+    }
+
+    .step {
+        display: flex;
+        align-items: center;
+	justify-content: left; 
+        padding: 1.5rem;
+        background: white;
+        border-radius: 15px;
+        box-shadow: 0 4px 15px rgba(135, 206, 250, 0.2);
+	width: 600px; /* 원하는 너비 값으로 변경 */
+  	margin-left: auto;
+	margin-right: auto;
+    }
+
+    .step-number {
+        width: 40px;
+        height: 40px;
+        background: #48a7f2;
+        color: white;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        margin-right: 1.5rem;
+    }
+
+   .step-content {
+  	text-align: left; /* 텍스트 왼쪽 정렬 */
+  	flex-grow: 1; /* 필요하다면 유지 */
+   }
+
+    .step-content h4 {
+        color: #48a7f2;
+        margin-bottom: 0.5rem;
+    }
+
+    .step-content p {
+	color: #666;
+        margin-bottom: 0;
+    }
+
+    .btn-primary {
+        background-color: #48a7f2;
+        border-color: #48a7f2;
+    }
+
+    .btn-primary:hover {
+        background-color: #87cefa;
+        border-color: #87cefa;
+    }
+
+    .btn-outline-primary {
+        color: #48a7f2;
+        border-color: #48a7f2;
+    }
+
+    .btn-outline-primary:hover {
+        background-color: #48a7f2;
+        border-color: #48a7f2;
+        color: white;
+    }
+</style>
+{% endblock %}

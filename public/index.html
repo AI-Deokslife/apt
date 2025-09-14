@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>네이버 부동산 데이터 수집기</title>
+    <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>❤네이버 부동산 데이터 수집기❤</h1>
+        <p>지역별 아파트 매물 정보를 수집하여 데이터 조회 및 엑셀로 저장합니다</p>
+
+        <div class="input-group">
+            <label for="region-input">지역명 (예: 천호동)</label>
+            <input type="text" id="region-input" placeholder="지역명을 입력하세요">
+            <button id="search-region-btn">지역 검색</button>
+        </div>
+
+        <div class="input-group">
+            <label for="complex-select">아파트 단지 선택</label>
+            <select id="complex-select" disabled>
+                <option value="">단지를 선택하세요</option>
+            </select>
+        </div>
+
+        <div class="input-group">
+            <label for="trade-type-select">거래 유형</label>
+            <select id="trade-type-select">
+                <option value="전체">전체</option>
+                <option value="매매">매매</option>
+                <option value="전세">전세</option>
+                <option value="월세">월세</option>
+            </select>
+        </div>
+
+        <button id="start-crawling-btn">데이터 수집 시작</button>
+
+        <div id="status-message"></div>
+
+        <div id="results-container">
+            <h2>수집 결과</h2>
+            <table id="data-table">
+                <thead>
+                    <tr>
+                        <th>순번</th>
+                        <th>아파트명</th>
+                        <th>거래유형</th>
+                        <th>층수</th>
+                        <th>월세</th>
+                        <th>거래가격</th>
+                        <th>면적(m²)</th>
+                        <th>방향</th>
+                        <th>등록일</th>
+                        <th>동</th>
+                        <th>중개사무소</th>
+                        <th>특징</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Data will be inserted here by JavaScript -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="./script.js"></script>
+</body>
+</html>
