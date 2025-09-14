@@ -1,0 +1,384 @@
+{% extends "base.html" %}
+
+{% block title %}관리자 대시보드{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col-md-12">
+            <div class="dashboard-header mb-4">
+                <h2 class="mb-3" style="color: #FF6B8B;">
+                    <i class="fas fa-user-shield"></i> 관리자 대시보드
+                </h2>
+                <p class="text-muted">사용자 계정과 라이센스를 관리하세요.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 시스템 통계 -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card bg-primary text-white">
+                <div class="card-body">
+                    <h3>{{ total_users }}</h3>
+                    <p class="mb-0">총 사용자</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-success text-white">
+                <div class="card-body">
+                    <h3>{{ active_users }}</h3>
+                    <p class="mb-0">활성 사용자</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-warning text-white">
+                <div class="card-body">
+                    <h3>{{ trial_users }}</h3>
+                    <p class="mb-0">무료 체험 사용자</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-info text-white">
+                <div class="card-body">
+                    <h3>{{ premium_users }}</h3>
+                    <p class="mb-0">유료 회원</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 사용자 관리 -->
+    <div class="card shadow">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="card-title mb-0">사용자 관리</h5>
+                <div class="search-box">
+                    <input type="text" id="userSearch" class="form-control" placeholder="사용자 검색...">
+                </div>
+            </div>
+            
+            <div class="table-responsive">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>이메일</th>
+                            <th>닉네임</th>
+                            <th>가입일</th>
+                            <th>계정 유형</th>
+                            <th>상태</th>
+                            <th>구독 종료일</th>
+                            <th>관리</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in users.items %}
+                        <tr>
+                            <td>{{ user.email }}</td>
+                            <td>{{ user.username }}</td>
+                            <td>{{ user.created_at.strftime('%Y. %m. %d. %H:%M') }}</td>
+                            <td>
+                                {% if user.is_admin %}
+                                    <span class="badge bg-danger">관리자</span>
+                                {% elif user.is_premium %}
+                                    <span class="badge bg-success">유료 회원</span>
+                                {% else %}
+                                    <span class="badge bg-warning text-dark">무료 체험</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span class="badge {% if user.account_status == '활성' %}bg-success{% else %}bg-secondary{% endif %}">
+                                    {{ user.account_status }}
+                                </span>
+                            </td>
+                            <td>{{ user.subscription_expiry.strftime('%Y. %m. %d. %H:%M') if user.subscription_expiry else '-' }}</td>
+                            <td>
+                                <div class="btn-group">
+                                    {% if not user.is_admin %}
+                                        {% if user.is_premium %}
+                                            <button class="btn btn-sm btn-warning" onclick="showSubscriptionModal({{ user.id }}, '{{ user.username }}')">
+                                                무료체험으로 변경
+                                            </button>
+                                        {% else %}
+                                            <button class="btn btn-sm btn-success" onclick="showSubscriptionModal({{ user.id }}, '{{ user.username }}')">
+                                                유료회원 전환
+                                            </button>
+                                        {% endif %}
+                                        <button class="btn btn-sm {% if user.account_status == '활성' %}btn-outline-danger{% else %}btn-outline-success{% endif %}" 
+                                                onclick="toggleAccountStatus({{ user.id }})">
+                                            {% if user.account_status == '활성' %}계정 정지{% else %}계정 활성화{% endif %}
+                                        </button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- 페이지네이션 -->
+            <nav aria-label="Page navigation" class="mt-4">
+                <ul class="pagination justify-content-center">
+                    {% if users.has_prev %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('admin_dashboard', page=users.prev_num) }}">이전</a>
+                    </li>
+                    {% endif %}
+                    
+                    <li class="page-item active">
+                        <span class="page-link">{{ users.page }}</span>
+                    </li>
+                    
+                    {% if users.has_next %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('admin_dashboard', page=users.next_num) }}">다음</a>
+                    </li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+<!-- 구독 연장 모달 -->
+<div class="modal fade" id="subscriptionModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content" style="border-radius: 15px; border: none;">
+            <div class="modal-header border-0">
+                <h5 class="modal-title" style="color: #FF6B8B;">
+                    <i class="fas fa-user-edit"></i> 사용자 구독 관리
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-4"><span id="targetUsername"></span>님의 구독 정보를 수정합니다.</p>
+                
+                <!-- 구독 유형 선택 -->
+                <div class="mb-4">
+                    <label class="mb-2">구독 유형 선택</label>
+                    <div class="d-flex gap-2 mb-2">
+                        <button class="btn btn-outline-primary flex-grow-1" id="freeTrialBtn" onclick="changeSubscriptionType('free')">무료 체험</button>
+                        <button class="btn btn-outline-primary flex-grow-1" id="premiumBtn" onclick="changeSubscriptionType('premium')">유료 회원</button>
+                    </div>
+                    <small class="text-muted">유료 회원은 무제한으로 서비스를 이용할 수 있습니다.</small>
+                </div>
+                
+                <!-- 무료 체험 연장 설정 (무료 체험 선택 시만 표시) -->
+                <div class="mb-4" id="trialExtensionSection" style="display: none;">
+                    <label class="mb-2">무료 체험 기간 설정</label>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-outline-primary flex-grow-1" onclick="selectPeriod('1일로 초기화')">1일로 초기화</button>
+                        <button class="btn btn-outline-primary flex-grow-1" onclick="selectPeriod('1일')">1일 연장</button>
+                        <button class="btn btn-outline-primary flex-grow-1" onclick="selectPeriod('7일')">7일 연장</button>
+                        <button class="btn btn-outline-primary flex-grow-1" onclick="selectPeriod('30일')">30일 연장</button>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-end gap-2 mt-4">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="button" class="btn btn-primary" onclick="saveSubscriptionChanges()">저장하기</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.card {
+    box-shadow: 0 4px 15px rgba(255, 209, 220, 0.3);
+}
+
+.search-box {
+    width: 300px;
+}
+
+.btn-group .btn {
+    margin: 0 2px;
+}
+
+.modal-content {
+    background-color: #FFF9F9;
+}
+
+.form-check-input:checked {
+    background-color: #FF6B8B;
+    border-color: #FF6B8B;
+}
+
+.form-check-input:focus {
+    border-color: #FF6B8B;
+    box-shadow: 0 0 0 0.2rem rgba(255, 107, 139, 0.25);
+}
+</style>
+
+<script>
+let currentUserId = null;
+let selectedPeriod = null;
+let userIsPremium = false;
+let selectedSubscriptionType = null;
+
+function showSubscriptionModal(userId, username) {
+    currentUserId = userId;
+    selectedPeriod = null;
+    document.getElementById('targetUsername').textContent = username;
+    
+    // 버튼 텍스트 확인 (무료체험으로 변경 버튼을 클릭했는지 확인)
+    const buttonText = event && event.target ? event.target.textContent.trim() : '';
+    const forceFree = buttonText === '무료체험으로 변경';
+    
+    // 서버에서 현재 사용자 정보 가져오기
+    fetch(`/admin/get_user/${userId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                userIsPremium = data.isPremium;
+                
+                // 유료 회원이 "무료체험으로 변경" 버튼을 클릭한 경우 무료 체험 모드로 설정
+                if (userIsPremium && forceFree) {
+                    console.log("유료 회원에서 무료 체험으로 전환");
+                    changeSubscriptionType('free');
+                } else {
+                    // 그렇지 않으면 현재 상태 기준
+                    changeSubscriptionType(userIsPremium ? 'premium' : 'free');
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            // 기본값 설정
+            changeSubscriptionType('free');
+        });
+    
+    const modal = new bootstrap.Modal(document.getElementById('subscriptionModal'));
+    modal.show();
+}
+
+function changeSubscriptionType(type) {
+    console.log(`구독 유형 변경: ${type}`);
+    selectedSubscriptionType = type;
+    const freeBtn = document.getElementById('freeTrialBtn');
+    const premiumBtn = document.getElementById('premiumBtn');
+    const trialSection = document.getElementById('trialExtensionSection');
+    
+    if (type === 'premium') {
+        premiumBtn.classList.remove('btn-outline-primary');
+        premiumBtn.classList.add('btn-primary');
+        freeBtn.classList.remove('btn-primary');
+        freeBtn.classList.add('btn-outline-primary');
+        trialSection.style.display = 'none';
+        selectedPeriod = null; // 프리미엄 모드에서는 기간 선택 초기화
+    } else {
+        freeBtn.classList.remove('btn-outline-primary');
+        freeBtn.classList.add('btn-primary');
+        premiumBtn.classList.remove('btn-primary');
+        premiumBtn.classList.add('btn-outline-primary');
+        trialSection.style.display = 'block';
+        
+        // 무료 체험으로 변경 시 항상 기본 기간 선택
+        selectPeriod('7일');
+    }
+}
+
+function toggleSubscription(userId, isPremium) {
+    if (confirm(isPremium ? '무료체험으로 변경하시겠습니까?' : '유료회원으로 전환하시겠습니까?')) {
+        fetch(`/admin/toggle_subscription/${userId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token() }}'
+            },
+            body: JSON.stringify({ is_premium: !isPremium })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert(data.error || '오류가 발생했습니다.');
+            }
+        });
+    }
+}
+
+function selectPeriod(period) {
+    selectedPeriod = period;
+    document.querySelectorAll('#trialExtensionSection .btn').forEach(btn => {
+        if (btn.textContent === period) {
+            btn.classList.remove('btn-outline-primary');
+            btn.classList.add('btn-primary');
+        } else {
+            btn.classList.remove('btn-primary');
+            btn.classList.add('btn-outline-primary');
+        }
+    });
+}
+
+function saveSubscriptionChanges() {
+    if (!currentUserId) return;
+
+    const isPremium = selectedSubscriptionType === 'premium';
+    const data = {
+        is_premium: isPremium
+    };
+    
+    // 무료 체험인 경우 반드시 기간 정보 포함
+    if (!isPremium) {
+        if (!selectedPeriod) {
+            alert('무료 체험 기간을 선택해주세요.');
+            return;
+        }
+        data.period = selectedPeriod;
+    }
+    
+    console.log('저장할 구독 정보:', data);
+    
+    fetch(`/admin/extend_subscription/${currentUserId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token() }}'
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert(data.error || '오류가 발생했습니다.');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('오류가 발생했습니다.');
+    });
+}
+
+function toggleAccountStatus(userId) {
+    if (confirm('해당 사용자의 계정 상태를 변경하시겠습니까?')) {
+        fetch(`/admin/toggle_account_status/${userId}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                }
+            });
+    }
+}
+
+// 사용자 검색 기능
+document.getElementById('userSearch').addEventListener('input', function(e) {
+    const searchTerm = e.target.value.toLowerCase();
+    const rows = document.querySelectorAll('tbody tr');
+    
+    rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(searchTerm) ? '' : 'none';
+    });
+});
+</script>
+{% endblock %} 

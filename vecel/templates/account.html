@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block title %}내 계정{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow" style="border-radius: 15px; border: none;">
+                <div class="card-body p-4">
+                    <h2 class="text-center mb-4" style="color: #FF6B8B;">
+                        <i class="fas fa-user-circle"></i> 내 계정
+                    </h2>
+                    
+                    <!-- 구독 정보 -->
+                    <div class="card mb-4" style="background-color: #FFF9F9; border: none; border-radius: 10px;">
+                        <div class="card-body">
+                            <h5 class="card-title mb-3" style="color: #FF6B8B;">구독 정보</h5>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span>현재 구독 상태</span>
+                                <span class="badge {% if current_user.is_premium %}bg-success{% else %}bg-warning text-dark{% endif %}">
+                                    {% if current_user.is_premium %}유료 회원{% else %}무료 체험{% endif %}
+                                </span>
+                            </div>
+                            {% if not current_user.is_premium %}
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span>무료 체험 종료일</span>
+                                <span>{{ current_user.subscription_expiry.strftime('%Y. %m. %d. %H:%M') }}</span>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <!-- 계정 정보 -->
+                    <div class="card mb-4" style="background-color: #FFF9F9; border: none; border-radius: 10px;">
+                        <div class="card-body">
+                            <h5 class="card-title mb-3" style="color: #FF6B8B;">계정 정보</h5>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span>닉네임</span>
+                                <span>{{ current_user.username }}</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span>이메일</span>
+                                <span>{{ current_user.email }}</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span>가입일</span>
+                                <span>{{ current_user.created_at.strftime('%Y. %m. %d.') }}</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span>계정 상태</span>
+                                <span class="badge {% if current_user.account_status == '활성' %}bg-success{% else %}bg-secondary{% endif %}">
+                                    {{ current_user.account_status }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 비밀번호 변경 -->
+                    <div class="card" style="background-color: #FFF9F9; border: none; border-radius: 10px;">
+                        <div class="card-body">
+                            <h5 class="card-title mb-3" style="color: #FF6B8B;">비밀번호 변경</h5>
+                            <form method="POST" action="{{ url_for('change_password') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <div class="mb-3">
+                                    <label for="current_password" class="form-label">현재 비밀번호</label>
+                                    <input type="password" class="form-control" id="current_password" name="current_password" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="new_password" class="form-label">새 비밀번호</label>
+                                    <input type="password" class="form-control" id="new_password" name="new_password" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="confirm_password" class="form-label">새 비밀번호 확인</label>
+                                    <input type="password" class="form-control" id="confirm_password" name="confirm_password" required>
+                                </div>
+                                <div class="d-grid">
+                                    <button type="submit" class="btn btn-primary">비밀번호 변경</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.card {
+    box-shadow: 0 4px 15px rgba(255, 209, 220, 0.3);
+}
+
+.form-control:focus {
+    border-color: #FF6B8B;
+    box-shadow: 0 0 0 0.2rem rgba(255, 107, 139, 0.25);
+}
+
+.btn-primary {
+    background-color: #FF6B8B;
+    border-color: #FF6B8B;
+}
+
+.btn-primary:hover {
+    background-color: #FF5277;
+    border-color: #FF5277;
+}
+</style>
+{% endblock %} 

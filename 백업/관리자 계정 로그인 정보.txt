@@ -1,0 +1,6 @@
+관리자 계정 로그인 정보는 다음과 같습니다:
+이메일: admin@example.com
+비밀번호: admin123!@#
+
+
+price_info['거래가격']

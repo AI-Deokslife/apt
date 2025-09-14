@@ -1,0 +1,1106 @@
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+from models import db, User, Search
+from datetime import datetime, timedelta
+from functools import wraps
+from flask_wtf.csrf import CSRFProtect
+import os
+import requests
+import json
+import time
+import openpyxl
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter
+import urllib3
+from io import BytesIO
+from openpyxl import Workbook
+from forms import LoginForm, RegistrationForm
+import pandas as pd
+
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'your-secret-key-here'  # 고정된 값으로 변경
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Initialize extensions
+db.init_app(app)
+csrf = CSRFProtect(app)  # CSRF 보호 추가
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
+login_manager.login_message = '로그인이 필요한 페이지입니다.'
+
+# Suppress InsecureRequestWarning
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Constants
+TRADE_TYPE_MAPPING = {
+    "전체": "",
+    "매매": "A1",
+    "전세": "B1",
+    "월세": "B2"
+}
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+def check_subscription():
+    if current_user.is_admin or current_user.is_premium:
+        return True
+    if current_user.subscription_expiry and datetime.utcnow() < current_user.subscription_expiry:
+        return True
+    return False
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    
+    form = RegistrationForm()
+    if form.validate_on_submit():
+        user = User(username=form.username.data, 
+                   email=form.email.data, 
+                   password=form.password.data)
+        db.session.add(user)
+        db.session.commit()
+        flash('회원가입이 완료되었습니다. 로그인해주세요.', 'success')
+        return redirect(url_for('login'))
+    return render_template('register.html', form=form)
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    
+    form = LoginForm()
+    if form.validate_on_submit():
+        user = User.query.filter_by(email=form.email.data).first()
+        if user and user.check_password(form.password.data):
+            login_user(user, remember=form.remember.data)
+            user.last_login = datetime.utcnow()
+            db.session.commit()
+            flash('로그인되었습니다.', 'success')
+            next_page = request.args.get('next')
+            return redirect(next_page) if next_page else redirect(url_for('dashboard'))
+        else:
+            flash('로그인 실패. 이메일과 비밀번호를 확인해주세요.', 'danger')
+    return render_template('login.html', form=form)
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('index'))
+
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    if not check_subscription():
+        flash('체험 기간이 만료되었습니다. 관리자에게 문의해주세요.')
+        return redirect(url_for('index'))
+    return render_template('dashboard.html')
+
+@app.route('/search', methods=['POST'])
+@login_required
+def search():
+    """아파트 단지 검색 API"""
+    if not current_user.is_active:
+        return jsonify({'error': '계정이 비활성화되었습니다.'}), 403
+        
+    if not check_subscription():
+        return jsonify({'error': '구독이 만료되었습니다.'}), 403
+        
+    try:
+        # JSON 요청과 form 데이터 모두 처리
+        if request.is_json:
+            data = request.get_json()
+            keyword = data.get('keyword', '').strip()
+        else:
+            keyword = request.form.get('keyword', '').strip()
+        
+        if not keyword:
+            return jsonify({'error': '검색어를 입력해주세요.'}), 400
+            
+        print(f"Searching for keyword: {keyword}")  # 디버깅용 로그
+        
+        # 네이버 부동산 API를 통해 단지 정보 검색
+        session = requests.Session()
+        
+        # 세션 초기화 및 쿠키 설정
+        cookies = {
+            'NNB': 'DULXGODNGSGWE',
+            'NFS': '2',
+            'ASID': 'dc957c49000001882b8b11750000004a',
+            'landHomeFlashUseYn': 'Y',
+            'REALESTATE': 'Mon Apr 08 2024 20:46:01 GMT+0900 (Korean Standard Time)',
+        }
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+            'Referer': 'https://new.land.naver.com/',
+            'authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IlJFQUxFU1RBVEUiLCJpYXQiOjE3MDk4NzA1MDEsImV4cCI6MTcwOTg4MTMwMX0.6lV-K5RQgr_LdSqh5AS_YNJ_R-oWpwXit3JnmqHOJUo',
+        }
+        
+        session.headers.update(headers)
+        session.cookies.update(cookies)
+        
+        # 첫 번째 요청으로 세션 초기화
+        init_response = session.get('https://new.land.naver.com/complexes', verify=False)
+        if init_response.status_code != 200:
+            print(f"Initial request failed: {init_response.status_code}")
+            return jsonify({'error': '검색 초기화 중 오류가 발생했습니다.'}), 500
+
+        def get_regions(parent_id=''):
+            """지역 정보를 재귀적으로 가져오는 함수"""
+            url = 'https://new.land.naver.com/api/regions/list'
+            params = {'cortarNo': parent_id} if parent_id else {}
+            
+            try:
+                response = session.get(url, params=params, verify=False)
+                response.raise_for_status()
+                data = response.json()
+                return data.get('regionList', [])
+            except Exception as e:
+                print(f"Error getting regions: {str(e)}")
+                return []
+
+        def search_region(keyword):
+            """키워드로 지역 검색"""
+            # 서울시 전체(1100000000)
+            regions = get_regions('1100000000')
+            
+            # 구 단위 검색
+            for gu in regions:
+                if keyword in gu['cortarName']:
+                    return gu['cortarNo']
+                    
+                # 동 단위 검색
+                dong_regions = get_regions(gu['cortarNo'])
+                for dong in dong_regions:
+                    if keyword in dong['cortarName']:
+                        return dong['cortarNo']
+                        
+            return None
+
+        # 지역 코드 검색
+        region_code = search_region(keyword)
+        if not region_code:
+            return jsonify({'error': '검색 결과가 없습니다.'}), 404
+
+        # 단지 검색 요청
+        complex_url = 'https://new.land.naver.com/api/regions/complexes'
+        complex_params = {
+            'cortarNo': region_code,
+            'realEstateType': 'APT:ABYG:JGC:PRE',
+            'order': 'rank'
+        }
+
+        complex_response = session.get(complex_url, params=complex_params, verify=False)
+        print(f"Complex API Response Status: {complex_response.status_code}")  # 디버깅용 로그
+        
+        if complex_response.status_code != 200:
+            print(f"Complex API Error: {complex_response.text}")  # 디버깅용 로그
+            return jsonify({'error': '단지 검색 중 오류가 발생했습니다.'}), complex_response.status_code
+            
+        try:
+            complex_data = complex_response.json()
+            print(f"Complex API Response Data: {complex_data}")  # 디버깅용 로그
+        except json.JSONDecodeError as e:
+            print(f"Complex JSON Decode Error: {str(e)}")  # 디버깅용 로그
+            return jsonify({'error': '단지 정보를 처리할 수 없습니다.'}), 500
+            
+        if not complex_data or 'complexList' not in complex_data:
+            return jsonify({'error': '검색 결과가 없습니다.'}), 404
+            
+        complexes = complex_data.get('complexList', [])
+        if not complexes:
+            return jsonify({'error': '검색 결과가 없습니다.'}), 404
+            
+        # 응답 데이터 가공
+        result = [{
+            'complexNo': complex.get('complexNo'),
+            'complexName': complex.get('complexName'),
+            'address': f"{complex.get('address', '')} {complex.get('detailAddress', '')}".strip(),
+            'totalHouseholdCount': complex.get('totalHouseholdCount'),
+            'completionYearMonth': complex.get('completionYearMonth')
+        } for complex in complexes if complex.get('complexNo')]
+        
+        if not result:
+            return jsonify({'error': '검색 결과가 없습니다.'}), 404
+            
+        return jsonify({'complexes': result})
+        
+    except requests.exceptions.RequestException as e:
+        print(f"Request error: {str(e)}")  # 디버깅용 로그
+        return jsonify({'error': '네트워크 오류가 발생했습니다.'}), 500
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}")  # 디버깅용 로그
+        return jsonify({'error': f'검색 중 오류가 발생했습니다: {str(e)}'}), 500
+
+def get_complexes_by_region(keyword):
+    """네이버 부동산 API를 통해 아파트 단지 검색"""
+    try:
+        cookies = {
+            'NNB': 'FGYNFS4Y6M6WO',
+            'NFS': '2',
+            'ASID': 'afd10077000001934e8033f50000004e',
+            'ba.uuid': 'a5e52e8f-1775-4eea-9b42-30223205f9df',
+            'tooltipDisplayed': 'true',
+            'nstore_session': 'zmRE1M3UHwL1GmMzBg0gfcKH',
+            '_fwb': '242x1Ggncj6Dnv0G6JF6g8h.1738045585397',
+            'landHomeFlashUseYn': 'N',
+            'REALESTATE': 'Thu Apr 03 2025 20:14:11 GMT+0900 (Korean Standard Time)',
+            'NACT': '1',
+        }
+        headers = {
+            'accept': '*/*',
+            'accept-language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+            'authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IlJFQUxFU1RBVEUiLCJpYXQiOjE3MzgwNDcxNjMsImV4cCI6MTczODA1Nzk2M30.Heq-J33LY9pJDnYOqmRhTTrSPqCpChtWxka_XUphnd4',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        }
+        params = {'keyword': keyword, 'page': '1'}
+        url = 'https://new.land.naver.com/api/search'
+        print(f"지역 검색 API 요청 시작: {url}")
+        response = requests.get(url, params=params, cookies=cookies, headers=headers, timeout=30, verify=False)
+        response.raise_for_status()
+        print(f"지역 검색 API 응답 성공: 상태 코드 {response.status_code}")
+        complexes = response.json().get('complexes', [])
+        complexes.sort(key=lambda x: x['complexName'])
+        return complexes
+    except Exception as e:
+        print(f"오류 발생: {e}")
+        return []
+
+def get_real_estate_data(complex_no, trade_type, page=1):
+    """매물 데이터 조회"""
+    try:
+        cookies = {
+            'NNB': 'FGYNFS4Y6M6WO',
+            'NFS': '2',
+            'ASID': 'afd10077000001934e8033f50000004e',
+            'ba.uuid': 'a5e52e8f-1775-4eea-9b42-30223205f9df',
+            'tooltipDisplayed': 'true',
+            'nstore_session': 'zmRE1M3UHwL1GmMzBg0gfcKH',
+            'nstore_pagesession': 'iH4K+dqWcpYFllsM1U4-116496',
+            'NAC': 'XfPpC4A0XeLCA',
+            'page_uid': 'iHmGBsqVN8ossOXBRrlsssssswV-504443',
+            'nhn.realestate.article.rlet_type_cd': 'A01',
+            'nhn.realestate.article.trade_type_cd': '""',
+            'nhn.realestate.article.ipaddress_city': '1100000000',
+            '_fwb': '242x1Ggncj6Dnv0G6JF6g8h.1738045585397',
+            'realestate.beta.lastclick.cortar': '1174010900',
+            'landHomeFlashUseYn': 'N',
+            'BUC': 'fwUJCqRUIsM47V0-Lcz1VazTR9EQgUrBIxM1P_x9Id4=',
+            'REALESTATE': 'Tue Jan 28 2025 16:23:02 GMT+0900 (Korean Standard Time)',
+            'NACT': '1',
+        }
+        headers = {
+            'accept': '*/*',
+            'accept-language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+            'authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IlJFQUxFU1RBVEUiLCJpYXQiOjE3MzgwNDcxNjMsImV4cCI6MTczODA1Nzk2M30.Heq-J33LY9pJDnYOqmRhTTrSPqCpChtWxka_XUphnd4',
+            'referer': f'https://new.land.naver.com/complexes/{complex_no}',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        }
+        url = f'https://new.land.naver.com/api/articles/complex/{complex_no}'
+        params = {
+            'realEstateType': 'APT:PRE:ABYG:JGC',
+            'tradeType': trade_type,
+            'tag': '::::::::',
+            'rentPriceMin': '0',
+            'rentPriceMax': '900000000',
+            'priceMin': '0',
+            'priceMax': '900000000',
+            'areaMin': '0',
+            'areaMax': '900000000',
+            'showArticle': 'false',
+            'sameAddressGroup': 'false',
+            'priceType': 'RETAIL',
+            'page': str(page),
+            'complexNo': str(complex_no),
+            'type': 'list',
+            'order': 'rank'
+        }
+        print(f"[DEBUG] API 요청 시작: {url} with params={params}")
+        response = requests.get(url, params=params, cookies=cookies, headers=headers, verify=False)
+        response.raise_for_status()
+        data = response.json()
+        print(f"[DEBUG] API 응답 성공: 상태 코드 {response.status_code}")
+        return data
+    except Exception as e:
+        print(f"오류 발생: {e}")
+        return None
+
+def process_data(data):
+    """매물 데이터 처리"""
+    if not data:
+        print("[DEBUG] 처리할 데이터 없음")
+        return []
+    articles = data.get('articleList', [])
+    if not articles:
+        print("[DEBUG] articleList가 비어 있음")
+    processed_data = []
+    for article in articles:
+        tags = ', '.join(article.get('tagList', [])) if article.get('tagList') else ''
+        processed_article = {
+            '순번': 'N/A',
+            '아파트명': article.get('articleName'),
+            '거래유형': article.get('tradeTypeName'),
+            '층수': article.get('floorInfo'),
+            '월세': article.get('rentPrc'),
+            '거래가격': article.get('dealOrWarrantPrc'),
+            '면적(m²)': article.get('area2'),
+            '방향': article.get('direction'),
+            '등록일': article.get('articleConfirmYmd'),
+            '동': article.get('buildingName'),
+            '중개사무소': article.get('realtorName'),
+            '특징': tags
+        }
+        processed_data.append(processed_article)
+    print(f"[DEBUG] 처리된 매물 수: {len(processed_data)}")
+    return processed_data
+
+def fetch_all_pages(complex_no, trade_type):
+    """모든 페이지의 매물 데이터 수집"""
+    all_data = []
+    page = 1
+    while True:
+        print(f"데이터 수집 중... (페이지 {page})")
+        response_data = get_real_estate_data(complex_no, trade_type, page)
+        if not response_data or not response_data.get('articleList'):
+            print(f"[DEBUG] 페이지 {page}에서 데이터 없음 또는 articleList 비어 있음")
+            break
+        processed_data = process_data(response_data)
+        all_data.extend(processed_data)
+        if not response_data.get('isMoreData', False):
+            print(f"[DEBUG] 더 이상 데이터 없음")
+            break
+        page += 1
+        time.sleep(1)
+    all_data.sort(key=lambda x: x['등록일'] if x['등록일'] else '99999999')
+    print(f"데이터 수집 완료. 총 {len(all_data)}개 매물 발견.")
+    return all_data
+
+@app.route('/fetch_data', methods=['POST'])
+@login_required
+def fetch_data():
+    """매물 데이터 조회 API"""
+    if not check_subscription():
+        return jsonify({'error': '구독이 만료되었습니다.'}), 403
+        
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': '요청 데이터가 없습니다.'}), 400
+            
+        complex_no = data.get('complex_no')
+        trade_type = data.get('trade_type', '')
+        
+        if not complex_no:
+            return jsonify({'error': '단지 번호가 필요합니다.'}), 400
+            
+        # 거래 유형 코드 변환
+        trade_type_code = TRADE_TYPE_MAPPING.get(trade_type, '')
+        
+        # 단지 정보 조회
+        complex_info = get_complex_info(complex_no)
+        if not complex_info:
+            return jsonify({'error': '단지 정보를 찾을 수 없습니다.'}), 404
+            
+        # 매물 목록 조회
+        article_list = get_article_list(complex_no, trade_type_code)
+        if not article_list:
+            return jsonify({'error': '매물 정보를 찾을 수 없습니다.'}), 404
+            
+        # 데이터 처리
+        processed_data = []
+        for article in article_list.get('articleList', []):
+            print("\n🔍 원본 article 데이터:")
+            print(article)
+            
+            price_info = get_price_info(article)
+            
+            # 층수 정보 처리
+            floor_info = article.get('floorInfo', '')
+            if floor_info:
+                if '/' in floor_info:  # "3/15" 형태인 경우
+                    current_floor = floor_info.split('/')[0]
+                    floor_display = f"{current_floor}층"
+                else:
+                    floor_display = f"{floor_info}층"
+            else:
+                floor_display = '-'
+            
+            item = {
+                '거래유형': article.get('tradeTypeName', '-'),
+                '동': article.get('buildingName', '-'),
+                '층수': floor_display,
+                '전용면적': f"{article.get('area2', '-')}㎡",
+                '방향': article.get('direction', '-'),
+                '거래가격':  article.get('dealOrWarrantPrc'),
+                '월세': article.get('rentPrc'),
+                '중개사무소': article.get('realtorName', '-'),
+                '등록일': article.get('articleConfirmYmd', '-'),
+                '특징': ', '.join(article.get('tagList', [])) or '-',
+                '특징설명': article.get('articleFeatureDesc', '')
+            }
+            processed_data.append(item)
+            
+        print("\n📦 최종 가공된 데이터 (템플릿으로 보낼 것):")
+        for item in processed_data:
+            print(item)
+            
+        return jsonify({'data': processed_data})
+        
+    except Exception as e:
+        print(f"Error in fetch_data: {str(e)}")
+        return jsonify({'error': f'데이터 조회 중 오류가 발생했습니다: {str(e)}'}), 500
+
+@app.route('/download_excel', methods=['POST'])
+@login_required
+def download_excel():
+    """엑셀 파일 다운로드"""
+    if not check_subscription():
+        return jsonify({'error': '구독이 만료되었습니다.'}), 403
+        
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': '요청 데이터가 없습니다.'}), 400
+            
+        complex_no = data.get('complex_no')
+        trade_type = data.get('trade_type', '')
+        
+        if not complex_no:
+            return jsonify({'error': '단지 번호가 필요합니다.'}), 400
+            
+        # 단지 정보 조회
+        complex_info = get_complex_info(complex_no)
+        if not complex_info:
+            return jsonify({'error': '단지 정보를 찾을 수 없습니다.'}), 404
+            
+        # 매물 목록 조회
+        article_list = get_article_list(complex_no, TRADE_TYPE_MAPPING.get(trade_type, ''))
+        if not article_list:
+            return jsonify({'error': '매물 정보를 찾을 수 없습니다.'}), 404
+            
+        # 엑셀 파일 생성
+        wb = Workbook()
+        ws = wb.active
+        ws.title = complex_info.get('complexName', '매물정보')
+        
+        # 헤더 스타일 설정
+        header_fill = PatternFill(start_color='E2EFDA', end_color='E2EFDA', fill_type='solid')
+        header_font = Font(bold=True)
+        thin_border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+        center_alignment = Alignment(horizontal='center', vertical='center')
+        
+        # 헤더 추가
+        headers = ['순번', '거래유형', '동', '층수', '전용면적', '방향', '거래가격', '월세', '중개사무소', '등록일']
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col)
+            cell.value = header
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.border = thin_border
+            cell.alignment = center_alignment
+            
+        # 데이터 추가
+        articles = article_list.get('articleList', [])
+        for row, article in enumerate(articles, 2):
+            price_info = get_price_info(article)
+            
+            # 층수 정보 처리
+            floor_info = article.get('floorInfo', '')
+            if floor_info:
+                if '/' in floor_info:  # "3/15" 형태인 경우
+                    current_floor = floor_info.split('/')[0]
+                    floor_display = f"{current_floor}층"
+                else:
+                    floor_display = f"{floor_info}층"
+            else:
+                floor_display = '-'
+            
+            # 데이터 입력 및 스타일 적용
+            row_data = [
+                row-1,  # 순번
+                article.get('tradeTypeName', '-'),
+                article.get('buildingName', '-'),
+                floor_display,
+                f"{article.get('area2', '-')}㎡",
+                article.get('direction', '-'),
+                price_info['거래가격'],
+                price_info['월세'],
+                article.get('realtorName', '-'),
+                article.get('articleConfirmYmd', '-')
+            ]
+            
+            for col, value in enumerate(row_data, 1):
+                cell = ws.cell(row=row, column=col)
+                cell.value = value
+                cell.border = thin_border
+                cell.alignment = center_alignment
+                
+        # 열 너비 자동 조정
+        for col in ws.columns:
+            max_length = 0
+            column = col[0].column_letter
+            
+            for cell in col:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+                    
+            adjusted_width = (max_length + 2) * 1.2  # 여유 공간 추가
+            ws.column_dimensions[column].width = adjusted_width
+            
+        # 필터 설정
+        ws.auto_filter.ref = ws.dimensions
+        
+        # 메모리에 엑셀 파일 저장
+        excel_file = BytesIO()
+        wb.save(excel_file)
+        excel_file.seek(0)
+        
+        # 파일명에 아파트 이름과 현재 시간 추가
+        filename = f"{complex_info.get('complexName', '매물정보')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        return send_file(
+            excel_file,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+        
+    except Exception as e:
+        print(f"Error in download_excel: {str(e)}")
+        return jsonify({'error': f'엑셀 파일 생성 중 오류가 발생했습니다: {str(e)}'}), 500
+
+def get_price_info(article):
+    # 진짜 있는 그대로 문자열로만 처리
+    deal = article.get('dealOrWarrantPrc', '없음')
+    rent = article.get('rentPrc', '없음')
+    trade = article.get('tradeTypeName', '없음')
+
+    print(f"🟢 거래유형: {trade} / 거래가: {deal} / 월세: {rent}")
+    print(f"🔍 전체 article 데이터:")
+    print(article)
+
+    # 월세인 경우 보증금을 거래가격으로 표시
+    if trade == '월세':
+        return {
+            '거래가격': f"{deal}",  # 보증금을 그대로 표시
+            '월세': f"{rent}"
+        }
+    else:
+        return {
+            '거래가격': f"{deal}",
+            '월세': '-'
+        }
+
+def format_price(price):
+    """가격을 포맷팅하는 함수"""
+    try:
+        if not price or price == '0':
+            return '-'
+            
+        price = int(price)
+        if price >= 10000:
+            억 = price // 10000
+            만 = price % 10000
+            if 만 > 0:
+                return f"{억}억 {만:,}만원"
+            return f"{억}억원"
+        else:
+            return f"{price:,}만원"
+    except:
+        return '-'
+
+def admin_required(f):
+    @wraps(f)
+    @login_required
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_admin:
+            flash('관리자 권한이 필요합니다.', 'danger')
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+@app.route('/admin')
+@admin_required
+def admin_dashboard():
+    page = request.args.get('page', 1, type=int)
+    users = User.query.paginate(page=page, per_page=10)
+    total_users = User.query.count()
+    active_users = User.query.filter_by(account_status='활성').count()
+    trial_users = User.query.filter_by(is_premium=False).count()
+    premium_users = User.query.filter_by(is_premium=True).count()
+    
+    return render_template('admin_dashboard.html',
+                         users=users,
+                         total_users=total_users,
+                         active_users=active_users,
+                         trial_users=trial_users,
+                         premium_users=premium_users)
+
+@app.route('/admin/toggle_subscription/<int:user_id>', methods=['POST'])
+@admin_required
+def toggle_subscription(user_id):
+    user = User.query.get_or_404(user_id)
+    if not user.is_admin:  # 관리자는 변경 불가
+        data = request.get_json()
+        is_premium = data.get('is_premium', False)
+        
+        user.is_premium = is_premium
+        if is_premium:
+            user.subscription_expiry = datetime.utcnow() + timedelta(days=36500)  # 100년
+        else:
+            user.subscription_expiry = datetime.utcnow() + timedelta(days=1)  # 1일 무료체험
+            
+        db.session.commit()
+        return jsonify({'success': True})
+    
+    return jsonify({'success': False, 'error': '관리자 계정은 변경할 수 없습니다.'})
+
+@app.route('/admin/extend_subscription/<int:user_id>', methods=['POST'])
+@admin_required
+def extend_subscription(user_id):
+    user = User.query.get_or_404(user_id)
+    if not user.is_admin:  # 관리자는 변경 불가
+        data = request.get_json()
+        is_premium = data.get('is_premium', False)
+        period = data.get('period')
+        
+        user.is_premium = is_premium
+        
+        if is_premium:
+            user.subscription_expiry = datetime.utcnow() + timedelta(days=36500)  # 100년
+        elif period:
+            current_time = datetime.utcnow()
+            if period == '1일로 초기화':
+                user.subscription_expiry = current_time + timedelta(days=1)
+            elif period == '1일':
+                if user.subscription_expiry and user.subscription_expiry > current_time:
+                    user.subscription_expiry += timedelta(days=1)
+                else:
+                    user.subscription_expiry = current_time + timedelta(days=1)
+            elif period == '7일':
+                if user.subscription_expiry and user.subscription_expiry > current_time:
+                    user.subscription_expiry += timedelta(days=7)
+                else:
+                    user.subscription_expiry = current_time + timedelta(days=7)
+            elif period == '30일':
+                if user.subscription_expiry and user.subscription_expiry > current_time:
+                    user.subscription_expiry += timedelta(days=30)
+                else:
+                    user.subscription_expiry = current_time + timedelta(days=30)
+        
+        db.session.commit()
+        return jsonify({'success': True})
+    
+    return jsonify({'success': False, 'error': '관리자 계정은 변경할 수 없습니다.'})
+
+@app.route('/admin/toggle_account_status/<int:user_id>')
+@admin_required
+def toggle_account_status(user_id):
+    user = User.query.get_or_404(user_id)
+    user.account_status = '정지' if user.account_status == '활성' else '활성'
+    db.session.commit()
+    return jsonify({'success': True, 'new_status': user.account_status})
+
+def create_admin():
+    """Create an admin user if it doesn't exist."""
+    try:
+        admin = User.query.filter_by(email='admin@example.com').first()
+        if not admin:
+            admin = User(
+                username='Administrator',
+                email='admin@example.com',
+                password='admin123!@#',
+                is_admin=True
+            )
+            db.session.add(admin)
+            db.session.commit()
+            print("관리자 계정이 생성되었습니다.")
+        else:
+            print("관리자 계정이 이미 존재합니다.")
+    except Exception as e:
+        print(f"관리자 계정 생성 중 오류 발생: {str(e)}")
+        db.session.rollback()
+
+@app.route('/account')
+@login_required
+def account():
+    return render_template('account.html')
+
+@app.route('/change_password', methods=['POST'])
+@login_required
+def change_password():
+    current_password = request.form.get('current_password')
+    new_password = request.form.get('new_password')
+    confirm_password = request.form.get('confirm_password')
+    
+    if not current_user.check_password(current_password):
+        flash('현재 비밀번호가 올바르지 않습니다.', 'danger')
+        return redirect(url_for('account'))
+        
+    if new_password != confirm_password:
+        flash('새 비밀번호가 일치하지 않습니다.', 'danger')
+        return redirect(url_for('account'))
+        
+    if len(new_password) < 8:
+        flash('비밀번호는 8자 이상이어야 합니다.', 'danger')
+        return redirect(url_for('account'))
+        
+    current_user.password = generate_password_hash(new_password)
+    db.session.commit()
+    flash('비밀번호가 성공적으로 변경되었습니다.', 'success')
+    return redirect(url_for('account'))
+
+def get_complex_info(complex_no):
+    """아파트 단지 상세 정보 조회"""
+    try:
+        cookies = {
+            'NNB': 'FGYNFS4Y6M6WO',
+            'NFS': '2',
+            'ASID': 'afd10077000001934e8033f50000004e',
+            'ba.uuid': 'a5e52e8f-1775-4eea-9b42-30223205f9df',
+            'tooltipDisplayed': 'true',
+            'nstore_session': 'zmRE1M3UHwL1GmMzBg0gfcKH',
+            '_fwb': '242x1Ggncj6Dnv0G6JF6g8h.1738045585397',
+            'landHomeFlashUseYn': 'N',
+            'REALESTATE': 'Thu Apr 03 2025 20:14:11 GMT+0900 (Korean Standard Time)',
+            'NACT': '1',
+        }
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+            'Referer': f'https://new.land.naver.com/complexes/{complex_no}',
+            'authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IlJFQUxFU1RBVEUiLCJpYXQiOjE3MzgwNDcxNjMsImV4cCI6MTczODA1Nzk2M30.Heq-J33LY9pJDnYOqmRhTTrSPqCpChtWxka_XUphnd4',
+            'accept': '*/*',
+            'accept-language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+        }
+        
+        session = requests.Session()
+        session.headers.update(headers)
+        session.cookies.update(cookies)
+        
+        # 첫 번째 요청으로 세션 초기화
+        init_url = f'https://new.land.naver.com/complexes/{complex_no}'
+        init_response = session.get(init_url, verify=False)
+        if init_response.status_code != 200:
+            print(f"Initial request failed: {init_response.status_code}")
+            return None
+            
+        # 단지 정보 요청
+        url = f'https://new.land.naver.com/api/complexes/overview/{complex_no}'
+        response = session.get(url, verify=False)
+        response.raise_for_status()
+        
+        # 응답 내용 출력 (디버깅용)
+        print(f"Complex API Response: {response.text}")
+        
+        return response.json()
+    except Exception as e:
+        print(f"Error in get_complex_info: {str(e)}")
+        return None
+
+def get_article_list(complex_no, trade_type='', page=1):
+    """매물 목록 조회"""
+    try:
+        cookies = {
+            'NNB': 'FGYNFS4Y6M6WO',
+            'NFS': '2',
+            'ASID': 'afd10077000001934e8033f50000004e',
+            'ba.uuid': 'a5e52e8f-1775-4eea-9b42-30223205f9df',
+            'tooltipDisplayed': 'true',
+            'nstore_session': 'zmRE1M3UHwL1GmMzBg0gfcKH',
+            '_fwb': '242x1Ggncj6Dnv0G6JF6g8h.1738045585397',
+            'landHomeFlashUseYn': 'N',
+            'REALESTATE': 'Thu Apr 03 2025 20:14:11 GMT+0900 (Korean Standard Time)',
+            'NACT': '1',
+        }
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+            'Referer': f'https://new.land.naver.com/complexes/{complex_no}',
+            'authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IlJFQUxFU1RBVEUiLCJpYXQiOjE3MzgwNDcxNjMsImV4cCI6MTczODA1Nzk2M30.Heq-J33LY9pJDnYOqmRhTTrSPqCpChtWxka_XUphnd4',
+            'accept': '*/*',
+            'accept-language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+        }
+        
+        session = requests.Session()
+        session.headers.update(headers)
+        session.cookies.update(cookies)
+        
+        # 첫 번째 요청으로 세션 초기화
+        init_url = f'https://new.land.naver.com/complexes/{complex_no}'
+        init_response = session.get(init_url, verify=False)
+        if init_response.status_code != 200:
+            print(f"Initial request failed: {init_response.status_code}")
+            return None
+            
+        # 모든 매물을 저장할 리스트
+        all_articles = []
+        current_page = 1
+        
+        while True:
+            # 매물 목록 요청
+            url = f'https://new.land.naver.com/api/articles/complex/{complex_no}'
+            params = {
+                'realEstateType': 'APT:ABYG:JGC:PRE',
+                'tradeType': trade_type,
+                'tag': '::::::::',
+                'rentPriceMin': '0',
+                'rentPriceMax': '900000000',
+                'priceMin': '0',
+                'priceMax': '900000000',
+                'areaMin': '0',
+                'areaMax': '900000000',
+                'showArticle': 'false',
+                'sameAddressGroup': 'false',
+                'priceType': 'RETAIL',
+                'page': str(current_page),
+                'complexNo': str(complex_no),
+                'type': 'list',
+                'order': 'rank'
+            }
+            
+            response = session.get(url, params=params, verify=False)
+            response.raise_for_status()
+            
+            data = response.json()
+            articles = data.get('articleList', [])
+            
+            if not articles:
+                break
+                
+            all_articles.extend(articles)
+            
+            # 더 이상 데이터가 없으면 종료
+            if not data.get('isMoreData', False):
+                break
+                
+            current_page += 1
+            time.sleep(1)  # API 요청 간격 조절
+            
+        return {'articleList': all_articles}
+        
+    except Exception as e:
+        print(f"Error in get_article_list: {str(e)}")
+        return None
+
+def get_article_detail(article_no):
+    """매물 상세 정보 조회"""
+    try:
+        url = f'https://new.land.naver.com/api/articles/{article_no}'
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Authorization': '',
+            'Referer': 'https://new.land.naver.com/',
+            'Sec-Ch-Ua': '"Chromium";v="123", "Not:A-Brand";v="8"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"Windows"',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin'
+        }
+        
+        response = requests.get(url, headers=headers, verify=False)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        print(f"Error in get_article_detail: {str(e)}")
+        return None
+
+def get_region_info(keyword):
+    """지역 코드 검색"""
+    try:
+        cookies = {
+            'NNB': 'FGYNFS4Y6M6WO',
+            'NFS': '2',
+            'ASID': 'afd10077000001934e8033f50000004e',
+            'ba.uuid': 'a5e52e8f-1775-4eea-9b42-30223205f9df',
+            'tooltipDisplayed': 'true',
+            'nstore_session': 'zmRE1M3UHwL1GmMzBg0gfcKH',
+            '_fwb': '242x1Ggncj6Dnv0G6JF6g8h.1738045585397',
+            'landHomeFlashUseYn': 'N',
+            'REALESTATE': 'Thu Apr 03 2025 20:14:11 GMT+0900 (Korean Standard Time)',
+            'NACT': '1',
+        }
+        headers = {
+            'accept': '*/*',
+            'accept-language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+            'authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IlJFQUxFU1RBVEUiLCJpYXQiOjE3MzgwNDcxNjMsImV4cCI6MTczODA1Nzk2M30.Heq-J33LY9pJDnYOqmRhTTrSPqCpChtWxka_XUphnd4',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        }
+        
+        # 세션 초기화
+        session = requests.Session()
+        session.headers.update(headers)
+        session.cookies.update(cookies)
+
+        # 첫 번째 요청으로 세션 초기화
+        init_response = session.get('https://new.land.naver.com/complexes', verify=False)
+        if init_response.status_code != 200:
+            print(f"Initial request failed: {init_response.status_code}")
+            return None
+
+        # 지역 검색 요청
+        url = 'https://new.land.naver.com/api/search/region'
+        params = {
+            'keyword': keyword,
+            'type': 'COMPLEX'
+        }
+
+        response = session.get(url, params=params, verify=False)
+        response.raise_for_status()
+        print(f"Region API Response: {response.text}")  # 응답 내용 출력
+
+        data = response.json()
+        if isinstance(data, list) and len(data) > 0:
+            return data[0].get('cortarNo')  # 첫 번째 검색 결과의 지역 코드 반환
+        elif isinstance(data, dict) and 'regionList' in data:
+            if data['regionList'] and len(data['regionList']) > 0:
+                return data['regionList'][0].get('cortarNo')
+        return None
+
+    except Exception as e:
+        print(f"Error in get_region_info: {str(e)}")
+        return None
+
+def search_complexes(keyword):
+    """네이버 부동산 API를 통해 아파트 단지 검색"""
+    try:
+        cookies = {
+            'NNB': 'FGYNFS4Y6M6WO',
+            'NFS': '2',
+            'ASID': 'afd10077000001934e8033f50000004e',
+            'ba.uuid': 'a5e52e8f-1775-4eea-9b42-30223205f9df',
+            'tooltipDisplayed': 'true',
+            'nstore_session': 'zmRE1M3UHwL1GmMzBg0gfcKH',
+            '_fwb': '242x1Ggncj6Dnv0G6JF6g8h.1738045585397',
+            'landHomeFlashUseYn': 'N',
+            'REALESTATE': 'Thu Apr 03 2025 20:14:11 GMT+0900 (Korean Standard Time)',
+            'NACT': '1',
+        }
+        headers = {
+            'accept': '*/*',
+            'accept-language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+            'authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IlJFQUxFU1RBVEUiLCJpYXQiOjE3MzgwNDcxNjMsImV4cCI6MTczODA1Nzk2M30.Heq-J33LY9pJDnYOqmRhTTrSPqCpChtWxka_XUphnd4',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        }
+        
+        # 세션 초기화
+        session = requests.Session()
+        session.headers.update(headers)
+        session.cookies.update(cookies)
+
+        # 첫 번째 요청으로 세션 초기화
+        init_response = session.get('https://new.land.naver.com/complexes', verify=False)
+        if init_response.status_code != 200:
+            print(f"Initial request failed: {init_response.status_code}")
+            return []
+
+        # 단지 검색 요청
+        url = 'https://new.land.naver.com/api/search'
+        params = {
+            'keyword': keyword,
+            'page': '1'
+        }
+
+        response = session.get(url, params=params, verify=False)
+        response.raise_for_status()
+        print(f"Complex API Response: {response.text}")  # 응답 내용 출력
+
+        data = response.json()
+        if isinstance(data, dict) and 'complexes' in data:
+            complexes = data['complexes']
+            complexes.sort(key=lambda x: x['complexName'])
+            return [{
+                'complexNo': item.get('complexNo'),
+                'complexName': item.get('complexName'),
+                'address': item.get('address'),
+                'totalHouseholdCount': item.get('totalHouseholdCount'),
+                'completionYearMonth': item.get('completionYearMonth')
+            } for item in complexes if item.get('complexNo')]
+        return []
+
+    except requests.exceptions.RequestException as e:
+        print(f"Request error in search_complexes: {str(e)}")
+        return []
+    except json.JSONDecodeError as e:
+        print(f"JSON decode error in search_complexes: {str(e)}")
+        return []
+    except Exception as e:
+        print(f"API error in search_complexes: {str(e)}")
+        return []
+
+def process_article_data(article_list, complex_info):
+    """매물 데이터 처리"""
+    processed_data = []
+    
+    if not article_list or 'articleList' not in article_list:
+        return processed_data
+        
+    for article in article_list['articleList']:
+        try:
+            # 상세 정보 조회
+            detail = get_article_detail(article['articleNo'])
+            if not detail:
+                continue
+                
+            # 데이터 정제
+            item = {
+                '아파트명': complex_info['complexName'],
+                '매물번호': article['articleNo'],
+                '거래유형': detail.get('tradeTypeName', '-'),
+                '동': article.get('buildingName', '-'),
+                '층수': f"{article.get('floor', '-')}층",
+                '전용면적': f"{article.get('area', '-')}㎡",
+                '방향': detail.get('direction', '-'),
+                '중개사무소': detail.get('realEstateAgent', {}).get('officeName', '-'),
+                '등록일': article.get('articleConfirmYmd', '-'),
+                '특징': detail.get('detailDescription', '-')
+            }
+            
+            # 가격 정보 처리
+            if detail['tradeType'] == 'A1':  # 매매
+                item['거래가격'] = f"{int(detail['price'] / 10000):,}억원"
+                item['월세'] = '-'
+            elif detail['tradeType'] == 'B1':  # 전세
+                item['거래가격'] = f"{int(detail['price'] / 10000):,}억원"
+                item['월세'] = '-'
+            elif detail['tradeType'] == 'B2':  # 월세
+                item['거래가격'] = f"{int(detail['price'] / 10000):,}억원"
+                item['월세'] = f"{int(detail.get('rentPrice', 0)):,}만원"
+            
+            processed_data.append(item)
+        except Exception as e:
+            print(f"Error processing article {article.get('articleNo', 'unknown')}: {str(e)}")
+            continue
+            
+    return processed_data
+
+if __name__ == '__main__':
+    with app.app_context():
+        # Drop all tables and create them again
+        db.drop_all()
+        db.create_all()
+        create_admin()
+        print("데이터베이스가 초기화되었습니다.")
+    app.run(debug=True) 
